@@ -1,1 +1,99 @@
-hy
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Cloudflare AI Worker Frontend</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; background: #fafafa; }
+    input, textarea, button { padding: 0.5rem; margin: 0.5rem 0; width: 100%; }
+    img { display: block; margin-top: 1rem; max-width: 100%; border: 1px solid #ccc; }
+    #output { white-space: pre-wrap; background: #fff; padding: 1rem; border: 1px solid #ddd; margin-top: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>AI Generator Frontend</h1>
+
+  <textarea id="prompt" rows="3" placeholder="Enter your prompt..."></textarea>
+  <input type="text" id="systemPrompt" placeholder="Optional system prompt" />
+  <input type="file" id="imageInput" accept="image/*" />
+  <label><input type="checkbox" id="stream"> Enable streaming</label>
+  <button id="generate">Generate</button>
+
+  <div id="output">Output will appear here...</div>
+  <img id="result" alt="Generated image (if any)" />
+
+  <script>
+    const API_URL = "https://your-worker-domain.com/"; // 🔗 Your Worker URL
+    const API_KEY = "YOUR_API_KEY_HERE"; // 🔐 API key
+
+    async function fileToBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    document.getElementById("generate").addEventListener("click", async () => {
+      const prompt = document.getElementById("prompt").value.trim();
+      const systemPrompt = document.getElementById("systemPrompt").value.trim();
+      const stream = document.getElementById("stream").checked;
+      const imageFile = document.getElementById("imageInput").files[0];
+
+      if (!prompt) {
+        alert("Prompt is required!");
+        return;
+      }
+
+      let imageData;
+      if (imageFile) {
+        imageData = await fileToBase64(imageFile);
+      }
+
+      const body = { prompt, systemPrompt, stream, image: imageData };
+
+      try {
+        const response = await fetch(API_URL, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": `Bearer ${API_KEY}`
+          },
+          body: JSON.stringify(body)
+        });
+
+        if (!response.ok) {
+          const err = await response.json();
+          document.getElementById("output").innerText = "Error: " + (err.error || "Unknown error");
+          return;
+        }
+
+        // Handle streaming
+        if (stream) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder("utf-8");
+          let output = "";
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            output += decoder.decode(value, { stream: true });
+            document.getElementById("output").innerText = output;
+          }
+        } else {
+          const data = await response.json();
+          document.getElementById("output").innerText = data.response || JSON.stringify(data, null, 2);
+        }
+
+        // If image input, show it (vision response)
+        if (imageFile && !stream) {
+          document.getElementById("result").src = body.image; // You could replace with returned image URL if worker returns one
+        }
+
+      } catch (err) {
+        document.getElementById("output").innerText = "Failed: " + err.message;
+      }
+    });
+  </script>
+</body>
+</html>
